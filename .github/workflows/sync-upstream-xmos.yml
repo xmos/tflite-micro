@@ -12,4 +12,4 @@ jobs:
       - name: auto-sync-xmos
         uses: ./github/actions/sync_upstream_xmos_action/
         with:
-          token: {{ github.token }}
+          token: ${{ secrets.GITHUB_TOKEN }}
