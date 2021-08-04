@@ -10,6 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: auto-sync-xmos
-        uses: ./github/actions/sync_upstream_xmos_action/
+        uses: ./.github/actions/sync_upstream_xmos_action/
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
