@@ -6,7 +6,7 @@ jobs:
   auto-sync-xmos:
     runs-on: ubuntu-latest
 
-    name: 'Auto-sync upstream repo
+    name: 'Auto-sync upstream repo'
     steps:
       - uses: actions/checkout@v2
       - name: auto-sync-xmos
