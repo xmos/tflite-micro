@@ -36,13 +36,12 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   void* pointer_to_persistent_buffer = node->user_data;
 
   const TfLiteTensor* input = GetInput(context, node, 0);
-  const TfLiteTensor* prev_data = GetInput(context, node, 1);
-  const TfLiteTensor* start_address_size = GetInput(context, node, 2);
+  const TfLiteTensor* prev_data_address_size = GetInput(context, node, 1);
   TfLiteTensor* output = GetOutput(context, node, 0);
 
-  int start_address = start_address_size->data.i32[0];
-  int prev_data_size = start_address_size->data.i32[1];
-  char* prev_data_buffer = (char*)pointer_to_persistent_buffer + start_address;
+  int prev_data_address = prev_data_address_size->data.i32[0];
+  int prev_data_size = prev_data_address_size->data.i32[1];
+  char* prev_data_buffer = (char*)pointer_to_persistent_buffer + prev_data_address;
 
   memcpy(output->data.raw, prev_data_buffer, prev_data_size);
   memcpy(output->data.raw + prev_data_size, input->data.raw, input->bytes);
