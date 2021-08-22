@@ -72,7 +72,8 @@ struct Conv2DThreadInfo {
   size_t scratch_size;      // Each thread needs a scratch
   int stack_scratch_index;  // All threads stack and scratch consolidated into a
                             // single scratch buffer
-  nn::Filter2D* filter2D;   // The job to be done by this thread
+  KernelType kt;
+  nn::Filter2D* filter2D;  // The job to be done by this thread
 };
 
 // This is the struct that contains the data required to fully describe the work
@@ -127,6 +128,7 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
     op_data->threads[t].scratch_size = params[0].AsInt32();
     // read the kernel type
     KernelType kt = (KernelType)params[1].AsInt32();
+    op_data->threads[t].kt = kt;
 
     switch (kt) {
       // TODO : Cleanup to combine
@@ -196,9 +198,14 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
         nn::ImToColPadded::Params* mf_params =
             getDeserializedParams<nn::ImToColPadded::Params>(
                 context, params[3].As<std::string>());
+        // nn::MatMulInt8::Params* af_params =
+        //    getDeserializedParams<nn::MatMulInt8::Params, true>(
+        //        context, params[4].As<std::string>());
+
         nn::MatMulInt8::Params* af_params =
-            getDeserializedParams<nn::MatMulInt8::Params, true>(
-                context, params[4].As<std::string>());
+            reinterpret_cast<nn::MatMulInt8::Params*>(
+                (uint8_t*)(params[4].AsBlob().data()));
+
         nn::OT_int8::Params* ot_params =
             getDeserializedParams<nn::OT_int8::Params, true>(
                 context, params[5].As<std::string>());
@@ -246,6 +253,26 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
 
 TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   const TfLiteEvalTensor* input = tflite::micro::GetEvalInput(context, node, 0);
+
+  const TfLiteEvalTensor* weights =
+      tflite::micro::GetEvalInput(context, node, 1);
+  const TfLiteEvalTensor* biases =
+      tflite::micro::GetEvalInput(context, node, 2);
+  const TfLiteEvalTensor* multipliers =
+      tflite::micro::GetEvalInput(context, node, 3);
+
+  int8_t* w = (int8_t*)tflite::micro::GetTensorData<int8_t>(weights);
+  std::cout << "\n weights \n";
+  for (int i = 0; i < 10; ++i) {
+    std::cout << (int)w[i] << " ";
+  }
+
+  int16_t* m = (int16_t*)tflite::micro::GetTensorData<int16_t>(multipliers);
+  std::cout << "\n multipliers \n";
+  for (int i = 0; i < 10; ++i) {
+    std::cout << (int)m[i] << " ";
+  }
+
   TfLiteEvalTensor* output = tflite::micro::GetEvalOutput(context, node, 0);
 
   auto* op_data = reinterpret_cast<Conv2DOpData*>(node->user_data);
@@ -269,6 +296,18 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
     thread_data[t].Y = (int8_t*)tflite::micro::GetTensorData<int8_t>(output);
     thread_data[t].scratch = (int8_t*)context->GetScratchBuffer(
         context, op_data->threads[t].stack_scratch_index);
+    switch (op_data->threads[t].kt) {
+      case Conv2dValidDirect_t: {
+      } break;
+      case Conv2dValidIndirect_t: {
+      } break;
+      case Conv2dPaddedInDirect_t: {
+        nn::MatMulInt8* m =
+            (nn::MatMulInt8*)(op_data->threads[t].filter2D->aggregate_handler);
+        m->params->weights = w;
+      } break;
+    }
+
     thread_data[t].f = op_data->threads[t].filter2D;
     dispatcher_args[t] = reinterpret_cast<void*>(&thread_data[t]);
   }
