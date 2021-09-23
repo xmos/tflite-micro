@@ -39,7 +39,10 @@ struct Conv2DThread {
   int8_t* X;
   int8_t* Y;
   int8_t* scratch;
-  nn::Filter2D* f;
+
+  // TODO: Clean up
+  // Using AbstractKernel to be able to assign Filter2D or Filter2D_DW
+  nn::AbstractKernel* f;
 };
 
 extern "C" {
@@ -57,9 +60,11 @@ void conv2d_v2_thread_worker(void* context) {
 // -------------------------------------------------------------------- //
 
 enum KernelType {
-  Conv2dValidDirect_t,
-  Conv2dValidIndirect_t,
-  Conv2dPaddedInDirect_t,
+  Conv2DValidDirect_t,
+  Conv2DValidIndirect_t,
+  Conv2DPaddedIndirect_t,
+  DepthwiseConv2DValidDirect_t,
+  DepthwiseConv2DPaddedIndirect_t,
 };
 
 /**
@@ -72,7 +77,9 @@ struct Conv2DThreadInfo {
   size_t scratch_size;      // Each thread needs a scratch
   int stack_scratch_index;  // All threads stack and scratch consolidated into a
                             // single scratch buffer
-  nn::Filter2D* filter2D;   // The job to be done by this thread
+  // TODO: Clean up
+  // Using AbstractKernel to be able to assign Filter2D or Filter2D_DW
+  nn::AbstractKernel* filter2D;  // The job to be done by this thread
 };
 
 // This is the struct that contains the data required to fully describe the work
@@ -130,7 +137,7 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
 
     switch (kt) {
       // TODO : Cleanup to combine
-      case Conv2dValidDirect_t: {
+      case Conv2DValidDirect_t: {
         nn::Filter2D::Params* ak_params =
             getDeserializedParams<nn::Filter2D::Params>(
                 context, params[2].AsBlob().data());
@@ -160,7 +167,7 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
 
         op_data->threads[t].filter2D = conv2d;
       } break;
-      case Conv2dValidIndirect_t: {
+      case Conv2DValidIndirect_t: {
         nn::Filter2D::Params* ak_params =
             getDeserializedParams<nn::Filter2D::Params>(
                 context, params[2].AsBlob().data());
@@ -189,7 +196,7 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
 
         op_data->threads[t].filter2D = conv2d;
       } break;
-      case Conv2dPaddedInDirect_t: {
+      case Conv2DPaddedIndirect_t: {
         nn::Filter2D::Params* ak_params =
             getDeserializedParams<nn::Filter2D::Params>(
                 context, params[2].AsBlob().data());
@@ -215,6 +222,67 @@ void* Init(TfLiteContext* context, const char* buffer, size_t length) {
         auto conv2d = new (context->AllocatePersistentBuffer(
             context, sizeof(nn::Conv2dPaddedInDirect)))
             nn::Conv2dPaddedInDirect(ak_params, memcpy, aggregator, ot);
+
+        op_data->threads[t].filter2D = conv2d;
+      } break;
+      case DepthwiseConv2DValidDirect_t: {
+        nn::Filter2D_DW::Params* ak_params =
+            getDeserializedParams<nn::Filter2D_DW::Params>(
+                context, params[2].AsBlob().data());
+        nn::DerefInputFn::Params* mf_params =
+            getDeserializedParams<nn::DerefInputFn::Params>(
+                context, params[3].AsBlob().data());
+        nn::MatMulDirectFn_DW::Params* af_params =
+            getDeserializedParams<nn::MatMulDirectFn_DW::Params, true>(
+                context, params[4].AsBlob().data());
+        nn::OT_int8::Params* ot_params =
+            getDeserializedParams<nn::OT_int8::Params, true>(
+                context, params[5].AsBlob().data());
+
+        auto memcpy = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::DerefInputFn))) nn::DerefInputFn(mf_params);
+
+        auto aggregator = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::MatMulDirectFn_DW)))
+            nn::MatMulDirectFn_DW(af_params);
+
+        auto ot = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::OT_int8))) nn::OT_int8(ot_params);
+
+        auto conv2d = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::Conv2dDepthwiseValidDirect)))
+            nn::Conv2dDepthwiseValidDirect(ak_params, memcpy, aggregator, ot);
+
+        op_data->threads[t].filter2D = conv2d;
+      } break;
+      case DepthwiseConv2DPaddedIndirect_t: {
+        nn::Filter2D_DW::Params* ak_params =
+            getDeserializedParams<nn::Filter2D_DW::Params>(
+                context, params[2].AsBlob().data());
+        nn::ImToColPadded::Params* mf_params =
+            getDeserializedParams<nn::ImToColPadded::Params>(
+                context, params[3].AsBlob().data());
+        nn::MatMulDirectFn_DW::Params* af_params =
+            getDeserializedParams<nn::MatMulDirectFn_DW::Params, true>(
+                context, params[4].AsBlob().data());
+        nn::OT_int8::Params* ot_params =
+            getDeserializedParams<nn::OT_int8::Params, true>(
+                context, params[5].AsBlob().data());
+
+        auto memcpy = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::ImToColPadded))) nn::ImToColPadded(mf_params);
+
+        auto aggregator = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::MatMulDirectFn_DW)))
+            nn::MatMulDirectFn_DW(af_params);
+
+        auto ot = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::OT_int8))) nn::OT_int8(ot_params);
+
+        auto conv2d = new (context->AllocatePersistentBuffer(
+            context, sizeof(nn::Conv2dDepthwisePaddedIndirect)))
+            nn::Conv2dDepthwisePaddedIndirect(ak_params, memcpy, aggregator,
+                                              ot);
 
         op_data->threads[t].filter2D = conv2d;
       } break;
